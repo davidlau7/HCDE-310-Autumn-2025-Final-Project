@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html lang="en">
+{% extends "base.html %}
+<head>
+    <meta charset="UTF-8">
+    <title>Forecast Player</title>
+</head>
+{% block content %}
+<div>
+    <form action="/results" method="post">
+        <div class="form-group">
+            <p>
+                <label for="place">Location</label>
+                <input type="text" id="place" name="user_place" class="form-control">
+            </p>
+        </div>
+    </form>
+</div>
+{% endblock %}
+</html>
