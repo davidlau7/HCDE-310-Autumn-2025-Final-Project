@@ -1,20 +1,20 @@
-<!DOCTYPE html>
-<html lang="en">
-{% extends "base.html %}
+{% extends "base.html" %}
 <head>
     <meta charset="UTF-8">
+
     <title>Forecast Player</title>
 </head>
 {% block content %}
-<div>
-    <form action="/results" method="post">
-        <div class="form-group">
-            <p>
-                <label for="place">Location</label>
-                <input type="text" id="place" name="user_place" class="form-control">
-            </p>
-        </div>
-    </form>
-</div>
+    <br><br>
+    <div class="d-flex justify-content-center">
+        <form action="/results" method="POST">
+            <div class="input-group mb-3 form-group">
+                <input type="text" placeholder="Location" id="place" name="user_place" class="form-control" aria-describedby="submit-button placeHelpBlock">
+                <button class="btn btn-outline-secondary" type="submit" id="submit-button">Submit</button>
+            </div>
+            <div id="placeHelpBlock" class="form-text">
+                Type the name of the place you would like the forecast of. This works only for locations within the United States.
+            </div>
+        </form>
+    </div>
 {% endblock %}
-</html>
