@@ -1,25 +1,31 @@
-import json, urllib.parse, urllib.request, datetime
+import urllib.parse, urllib.request, datetime, requests
 
-from flask import Flask, redirect, session, render_template, request, jsonify
-from datetime import datetime, timedelta
+from flask import Flask, redirect, session, render_template, request, jsonify, url_for
+from datetime import datetime
 from projectsecrets import client_id, client_secret, secret_key
+from functions import get_weather_playlist
 
 app = Flask(__name__)
 app.secret_key = secret_key
 
 CLIENT_ID = client_id
 CLIENT_SECRET = client_secret
-REDIRECT_URI = "http://127.0.0.1:5000"
+REDIRECT_URI = "http://127.0.0.1:5000/callback"
 AUTH_URL = "https://accounts.spotify.com/authorize"
 TOKEN_URL = "https://accounts.spotify.com/api/token"
 API_BASE_URL = "https://api.spotify.com/v1/"
 @app.route("/")
 def index():
-    return "Welcome to Forecast Player <br><a href='/login'>Login with Spotify<a/>"
+    try:
+        token = session["access_token"]
+    except KeyError:
+        return redirect(url_for("login"))
+
+    return render_template("index.html")
 
 @app.route("/login")
 def login():
-    scope = "playlist-read-private playlist-read-collaboration playlist-modify-private playlist-modify-public"
+    scope = "user-top-read playlist-modify-public playlist-modify-private user-read-private user-read-email"
 
     params = {
         "client_id": CLIENT_ID,
@@ -37,6 +43,7 @@ def login():
 def callback():
     if "error" in request.args:
         return jsonify({"error": request.args["error"]})
+
     if "code" in request.args:
         req_body = {
             "code": request.args["code"],
@@ -46,30 +53,30 @@ def callback():
             "client_secret": CLIENT_SECRET,
         }
 
-        response = request.post(TOKEN_URL, data=req_body)
+        response = requests.post(TOKEN_URL, data=req_body)
         token_info = response.json()
 
         session["access_token"] = token_info["access_token"]
         session["refresh_token"] = token_info["refresh_token"]
         session["expires_at"] = datetime.now().timestamp() + token_info["expires_in"]
 
-        return redirect("/playlists")
+        return redirect("/")
 
-@app.route("/playlists")
-def get_playlists():
+@app.route("/results", methods=["GET", "POST"])
+def results():
     if "access_token" not in session:
         return redirect("/login")
-    if datetime.now() > session["expires_at"]:
+
+    if datetime.now().timestamp() > session["expires_at"]:
         return redirect("/refresh-token")
 
-    headers = {
-        "Authorization": f"Bearer {session['access_token']}",
-    }
-
-    response = request.get(API_BASE_URL + "me/playlists", headers=headers)
-    playlists = response.json()
-
-    return jsonify(playlists)
+    if request.method == "POST":
+        token = session["access_token"]
+        get_weather_playlist(token, request.form["user_place"])
+        print("Successfully added playlist to Spotify library!")
+        return render_template("results.html")
+    else:
+        return "HTTP 400 Error. Wrong HTTP method. Please submit the form instead", 400
 
 @app.route("/refresh-token")
 def refresh_token():
@@ -84,11 +91,11 @@ def refresh_token():
             "client_secret": CLIENT_SECRET,
         }
 
-    response = request.post(TOKEN_URL, data=req_body)
+    response = requests.post(TOKEN_URL, data=req_body)
     new_token_info = response.json()
 
     session["access_token"] = new_token_info["access_token"]
     session["expires_at"] = datetime.now().timestamp() + new_token_info["expires_in"]
 
-    return redirect("/playlists")
+    return redirect("/")
 
