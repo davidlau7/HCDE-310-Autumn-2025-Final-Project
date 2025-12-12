@@ -1,1 +1,1 @@
-I used AI to debug sections of this project. Statements included, "what errors are in this chunk of text?", "how does this {insert error message} occur?", etc. I also used AI to assist with the creation of the OAuth flow. Statements included, "how to properly store the access token in the session?"
+I used AI to debug sections of my code, particularly the OAuth flow. An example prompt is, "how can I ensure that the access token is saved in the session and can be refreshed?"
