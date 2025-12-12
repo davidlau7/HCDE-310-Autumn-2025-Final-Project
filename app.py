@@ -5,6 +5,7 @@ from datetime import datetime
 from projectsecrets import client_id, client_secret, secret_key
 from functions import get_weather_playlist
 
+
 app = Flask(__name__)
 app.secret_key = secret_key
 
@@ -25,14 +26,18 @@ def index():
 
 @app.route("/login")
 def login():
-    scope = "user-top-read playlist-modify-public playlist-modify-private user-read-private user-read-email"
+    scope = ("user-top-read "
+             "playlist-modify-public "
+             "playlist-modify-private "
+             "user-read-private "
+             "user-read-email"
+    )
 
     params = {
         "client_id": CLIENT_ID,
         "response_type": "code",
         "scope": scope,
         "redirect_uri": REDIRECT_URI,
-        "show_dialog": True,
     }
 
     auth_url = f"{AUTH_URL}?{urllib.parse.urlencode(params)}"
@@ -72,9 +77,25 @@ def results():
 
     if request.method == "POST":
         token = session["access_token"]
-        get_weather_playlist(token, request.form["user_place"])
-        print("Successfully added playlist to Spotify library!")
-        return render_template("results.html")
+
+        try:
+            playlist_result = get_weather_playlist(token, request.form["user_place"])
+
+            if playlist_result:
+                print("Successfully added playlist to Spotify library!")
+                return render_template("results.html", message="Playlist created successfully!")
+            else:
+                print("Failed to create playlist.")
+                return render_template("results.html", message="Failed to create playlist.")
+        except requests.exceptions.HTTPError as e:
+            print(f"HTTP Error: {e}")
+            return render_template("results.html", message=f"Spotify API Error: {e}")
+        except requests.exceptions.RequestException as e:
+            print(f"Request Error: {e}")
+            return render_template("results.html", message="Network error occurred.")
+        except Exception as e:
+            print(f"Unexpected Error: {e}")
+            return render_template("results.html", message="An unexpected error occurred.")
     else:
         return "HTTP 400 Error. Wrong HTTP method. Please submit the form instead", 400
 
