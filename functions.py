@@ -14,15 +14,19 @@ def get_weather_playlist(token, place):
     * token: (str) Access token required to obtain user information.
     * place: (str) Place of weather to get playlist from.
     Returns
-    * (str) Url to the cover of a playlist based on the playlist ID.
+    * (JSON) JSON data of newly created playlist. If weather information could not be retrieved, return an error and
+    corresponding message.
     """
 
     headers = {
         "Authorization": f"Bearer {token}",
         "Content-Type": "application/json",
     }
+
     weather = get_weather(place)
     top_artists = get_top_artists(token)
+    if not top_artists:
+        return "Error: No top artists available."
 
     # Calculating the average popularity to use as a reference.
     total_popularity = 0
@@ -30,16 +34,25 @@ def get_weather_playlist(token, place):
         total_popularity += artist["Popularity"]
     total_popularity = total_popularity / len(top_artists)
 
-    cold_weather = ["rain", "snow", "showers"]
-    hot_weather = ["sunny", "cloudy", "clear"]
+    # Define keywords to check in weather string.
+    cold_keywords = ["rain", "snow", "showers", "drizzle"]
+    hot_keywords = ["sunny", "cloud", "clear"]
+
+    # Check for weather keywords in weather string.
+    is_cold_weather = any(keyword in weather for keyword in cold_keywords)
+    is_hot_weather = any(keyword in weather for keyword in hot_keywords)
 
     # Calculating recommended artists if forecast contains cold weather phenomena.
-    if weather in cold_weather:
+    if is_cold_weather:
         recommended_artists = {}
         for key, value in top_artists.items():
             artist = top_artists[key]
-            if artist["Popularity"] <= total_popularity:
+            if artist["Popularity"] < total_popularity:
                 recommended_artists[key] = value
+
+        if not recommended_artists:
+            print("Warning: No artists below average popularity. Using all artists.")
+            recommended_artists = top_artists
 
         data = create_playlist(headers, "Cold Weather Playlist", "A playlist to match the weather for you! From Forecast Player")
         playlist_id = data["id"]
@@ -48,18 +61,24 @@ def get_weather_playlist(token, place):
         return add_to_playlist(token, uris, playlist_id)
 
     # Calculating recommended artists if forecast contains hot weather phenomena.
-    if weather in hot_weather:
+    if is_hot_weather:
         recommended_artists = {}
         for key, value in top_artists.items():
             artist = top_artists[key]
             if artist["Popularity"] >= total_popularity:
                 recommended_artists[key] = value
 
+        if not recommended_artists:
+            print("Warning: No artists above average popularity. Using all artists.")
+            recommended_artists = top_artists
+
         data = create_playlist(headers, "Hot Weather Playlist", "A playlist to match the weather for you! From Forecast Player")
         playlist_id = data["id"]
         uris = artist_top_tracks(token, recommended_artists)
 
         return add_to_playlist(token, uris, playlist_id)
+
+    return {"Error": f"Unknown weather condition: {weather}"}
 
 ###-- Spotify API Functions --###
 
@@ -79,10 +98,16 @@ def get_user_id(token):
     }
 
     response = requests.get(API_BASE_URL + "me/", headers=headers)
-    user_info = response.json()
-    user_id = user_info["id"]
 
-    return user_id
+    if not response.ok:
+        raise Exception(f"Failed to fetch user profile: {response.text}")
+
+    user_info = response.json()
+
+    if "id" not in user_info:
+        raise Exception("Unexpected Spotify API response: 'id' not found in /me response.")
+
+    return user_info["id"]
 
 def create_playlist(token, name, description):
     """
@@ -101,7 +126,7 @@ def create_playlist(token, name, description):
     req_body = {
         "name": name,
         "description": description,
-        "public": True
+        "public": False
     }
 
     headers = {
@@ -109,15 +134,23 @@ def create_playlist(token, name, description):
         "Content-Type": "application/json",
     }
 
-    response = requests.post(API_BASE_URL + "/users/" + user_id + "/playlists", headers=headers, json=req_body)
+    url = f"{API_BASE_URL}users/{user_id}/playlists"
 
-    if response.status_code not in (200, 201):
-        print("Error creating the playlist:", response.text)
+    response = requests.post(url, headers=headers, json=req_body)
+
+    if response.status_code == 429:
+        retry_after = response.headers.get("Retry-After", "5")
+        raise Exception(f"API calls limited by Spotify. Retry after {retry_after} seconds.")
+
+    if not response.ok:
+        raise Exception(f"Failed to create playlist: {response.text}")
+
     return response.json()
 
 def get_top_artists(token):
     """
-    Returns a list of a user's top 20 artists, along with their popularity score and number of followers.
+    Returns a dictionary of a user's top 20 artists, along with their popularity score and number of followers. If there is no
+    data in JSON file, return an empty dictionary.
 
     Parameters
     * token: (str) Access token required to obtain user information.
@@ -130,11 +163,22 @@ def get_top_artists(token):
         "Content-Type": "application/x-www-form-urlencoded",
     }
     response = requests.get(API_BASE_URL + "me/top/artists", headers=headers)
-    artists = response.json()
+
+    if response.status_code == 429:
+        retry_after = response.headers.get("Retry-After", "5")
+        raise Exception(f"API calls limited by Spotify. Retry after {retry_after} seconds.")
+
+    if not response.ok:
+        raise Exception(f"Failed to get top artists: {response.text}")
+
+    data = response.json()
+
+    if "items" not in data or not data["items"]:
+        return {}
 
     top_artists = {}
 
-    for artist in artists["items"]:
+    for artist in data["items"]:
         top_artists[artist["name"]] = {"Popularity": int(artist["popularity"]),
                                        "Followers": artist["followers"]["total"],
                                        "ID": artist["id"]}
@@ -160,7 +204,7 @@ def artist_top_tracks(token, list_of_artists):
 
     for artist in list_of_artists.values():
         response = requests.get(
-            f"{API_BASE_URL}/artists/{artist['ID']}/top-tracks",
+            f"{API_BASE_URL}artists/{artist['ID']}/top-tracks",
             headers=headers,
             params={"market": "US"}
         )
@@ -189,41 +233,15 @@ def add_to_playlist(token, tracks, playlist_id):
     }
 
     response = requests.post(
-        f"{API_BASE_URL}/playlists/{playlist_id}/tracks",
+        f"{API_BASE_URL}playlists/{playlist_id}/tracks",
         headers=headers,
         json=tracks
     )
 
-    if response.status_code != 200:
+    if response.status_code != 201:
         print("Error adding to playlist:", response.text)
 
     return response.json()
-
-# def get_playlist_cover(token, playlist_id):
-#     """
-#     Returns the URL to the cover of a playlist based on the playlist ID.
-#
-#     Parameters
-#     * token: (str) Access token required to obtain user information.
-#     * playlist_id: (str) ID of Spotify playlist.
-#     Returns
-#     * (str) URL to the cover of a playlist based on the playlist ID.
-#     """
-#
-#     headers = {
-#         "Authorization": f"Bearer {token}",
-#     }
-#
-#     response = requests.get(
-#         f"{API_BASE_URL}/playlists/{playlist_id}/images",
-#         headers=headers
-#     )
-#
-#     if response.status_code != 200:
-#         print("Error getting playlist cover:", response.text)
-#
-#     cover_info = response.json()[0]
-#     return cover_info["url"]
 
 ###-- National Weather Service API Functions --###
 
@@ -324,6 +342,7 @@ def main():
     time.sleep(1)
 
     print(get_weather("Hawaii"))
+    print(get_weather("Los Angeles"))
 
 if __name__ == "__main__":
     try:
